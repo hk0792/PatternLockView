@@ -105,7 +105,6 @@ public class PatternLockView extends View {
     // This can be used to avoid updating the display for very small motions or noisy panels
     private static final float DEFAULT_DRAG_THRESHOLD = 0.0f;
 
-    private DotState[][] mDotStates;
     private int mPatternSize;
     private boolean mDrawingProfilingStarted = false;
     private long mAnimatingPeriodStart;
@@ -138,7 +137,8 @@ public class PatternLockView extends View {
      * in which case we use this to hold the dots we are drawing for the in
      * progress animation.
      */
-    private boolean[][] mPatternDrawLookup;
+    private Dot[] mPatternDrawLookup;
+    private Dot lastDot;
 
     private float mInProgressX = -1;
     private float mInProgressY = -1;
@@ -196,17 +196,7 @@ public class PatternLockView extends View {
         }
 
         // The pattern will always be symmetrical
-        mPatternSize = sDotCount * sDotCount;
-        mPattern = new ArrayList<>(mPatternSize);
-        mPatternDrawLookup = new boolean[sDotCount][sDotCount];
-
-        mDotStates = new DotState[sDotCount][sDotCount];
-        for (int i = 0; i < sDotCount; i++) {
-            for (int j = 0; j < sDotCount; j++) {
-                mDotStates[i][j] = new DotState();
-                mDotStates[i][j].mSize = mDotNormalSize;
-            }
-        }
+        initDots(sDotCount);
 
         mPatternListeners = new ArrayList<>();
 
@@ -275,7 +265,7 @@ public class PatternLockView extends View {
     protected void onDraw(Canvas canvas) {
         ArrayList<Dot> pattern = mPattern;
         int patternSize = pattern.size();
-        boolean[][] drawLookupTable = mPatternDrawLookup;
+        Dot[] drawLookupTable = mPatternDrawLookup;
 
         if (mPatternViewMode == AUTO_DRAW) {
             int oneCycle = (patternSize + 1) * MILLIS_PER_CIRCLE_ANIMATING;
@@ -286,7 +276,7 @@ public class PatternLockView extends View {
             clearPatternDrawLookup();
             for (int i = 0; i < numCircles; i++) {
                 Dot dot = pattern.get(i);
-                drawLookupTable[dot.mRow][dot.mColumn] = true;
+                drawLookupTable[dot.getId()].setSelected(true);
             }
 
             boolean needToUpdateInProgressPoint = numCircles > 0
@@ -297,14 +287,12 @@ public class PatternLockView extends View {
                         / MILLIS_PER_CIRCLE_ANIMATING;
 
                 Dot currentDot = pattern.get(numCircles - 1);
-                float centerX = getCenterXForColumn(currentDot.mColumn);
-                float centerY = getCenterYForRow(currentDot.mRow);
+                float centerX = currentDot.getX();
+                float centerY = currentDot.getY();
 
                 Dot nextDot = pattern.get(numCircles);
-                float dx = percentageOfNextCircle
-                        * (getCenterXForColumn(nextDot.mColumn) - centerX);
-                float dy = percentageOfNextCircle
-                        * (getCenterYForRow(nextDot.mRow) - centerY);
+                float dx = percentageOfNextCircle * (nextDot.getX() - centerX);
+                float dy = percentageOfNextCircle * (nextDot.getY() - centerY);
                 mInProgressX = centerX + dx;
                 mInProgressY = centerY + dy;
             }
@@ -315,16 +303,12 @@ public class PatternLockView extends View {
         currentPath.rewind();
 
         // Draw the dots
-        for (int i = 0; i < sDotCount; i++) {
-            float centerY = getCenterYForRow(i);
-            for (int j = 0; j < sDotCount; j++) {
-                DotState dotState = mDotStates[i][j];
-                float centerX = getCenterXForColumn(j);
-                float size = dotState.mSize * dotState.mScale;
-                float translationY = dotState.mTranslateY;
-                drawCircle(canvas, (int) centerX, (int) centerY + translationY,
-                        size, drawLookupTable[i][j], dotState.mAlpha);
-            }
+        for (Dot d : drawLookupTable) {
+            DotState dotState = d.dotState;
+            float size = dotState.mSize * dotState.mScale;
+            float translationY = dotState.mTranslateY;
+            drawCircle(canvas, (int) d.getX(), (int) d.getY() + translationY,
+                    size, d.isSelected(), dotState.mAlpha);
         }
 
         // Draw the path of the pattern (unless we are in stealth mode)
@@ -341,15 +325,16 @@ public class PatternLockView extends View {
                 // Only draw the part of the pattern stored in
                 // the lookup table (this is only different in case
                 // of animation)
-                if (!drawLookupTable[dot.mRow][dot.mColumn]) {
+                Dot dotLookup = drawLookupTable[dot.getId()];
+                if (!dotLookup.isSelected()) {
                     break;
                 }
                 anyCircles = true;
 
-                float centerX = getCenterXForColumn(dot.mColumn);
-                float centerY = getCenterYForRow(dot.mRow);
+                float centerX = dot.getX();
+                float centerY = dot.getY();
                 if (i != 0) {
-                    DotState state = mDotStates[dot.mRow][dot.mColumn];
+                    DotState state = dot.dotState;
                     currentPath.rewind();
                     currentPath.moveTo(lastX, lastY);
                     if (state.mLineEndX != Float.MIN_VALUE
@@ -385,6 +370,8 @@ public class PatternLockView extends View {
 
         int adjustedHeight = height - getPaddingTop() - getPaddingBottom();
         mViewHeight = adjustedHeight / (float) sDotCount;
+
+        initDots();
     }
 
     @Override
@@ -549,7 +536,7 @@ public class PatternLockView extends View {
         mPattern.addAll(pattern);
         clearPatternDrawLookup();
         for (Dot dot : pattern) {
-            mPatternDrawLookup[dot.mRow][dot.mColumn] = true;
+            mPatternDrawLookup[dot.getId()].setSelected(true);
         }
         setViewMode(patternViewMode);
     }
@@ -569,29 +556,48 @@ public class PatternLockView extends View {
             }
             mAnimatingPeriodStart = SystemClock.elapsedRealtime();
             final Dot first = mPattern.get(0);
-            mInProgressX = getCenterXForColumn(first.mColumn);
-            mInProgressY = getCenterYForRow(first.mRow);
+            mInProgressX = first.getX();
+            mInProgressY = first.getY();
             clearPatternDrawLookup();
         }
         invalidate();
     }
 
     public void setDotCount(int dotCount) {
-        sDotCount = dotCount;
-        mPatternSize = sDotCount * sDotCount;
-        mPattern = new ArrayList<>(mPatternSize);
-        mPatternDrawLookup = new boolean[sDotCount][sDotCount];
-
-        mDotStates = new DotState[sDotCount][sDotCount];
-        for (int i = 0; i < sDotCount; i++) {
-            for (int j = 0; j < sDotCount; j++) {
-                mDotStates[i][j] = new DotState();
-                mDotStates[i][j].mSize = mDotNormalSize;
-            }
-        }
+        initDots(dotCount);
 
         requestLayout();
         invalidate();
+    }
+
+    private void initDots() {
+        initDots(sDotCount);
+    }
+
+    private void initDots(int dotCount) {
+        sDotCount = dotCount;
+        mPatternSize = sDotCount * sDotCount;
+        if (mPattern == null)
+            mPattern = new ArrayList<>(mPatternSize);
+        Dot dot;
+        if (mPatternDrawLookup == null) {
+            mPatternDrawLookup = new Dot[mPatternSize];
+            for (int i = 0, size = mPatternSize; i < size; i++) {
+                dot = new Dot(i);
+                dot.setX(getCenterXForColumn(i % sDotCount));
+                dot.setY(getCenterYForRow(i / sDotCount));
+                dot.dotState.mSize = mDotNormalSize;
+                mPatternDrawLookup[i] = dot;
+            }
+        } else {
+            for (int i = 0, size = mPatternSize; i < size; i++) {
+                dot = mPatternDrawLookup[i];
+                dot.setX(getCenterXForColumn(i % sDotCount));
+                dot.setY(getCenterYForRow(i / sDotCount));
+                dot.dotState.mSize = mDotNormalSize;
+            }
+        }
+
     }
 
     public void setAspectRatioEnabled(boolean aspectRatioEnabled) {
@@ -626,11 +632,8 @@ public class PatternLockView extends View {
     public void setDotNormalSize(@Dimension int dotNormalSize) {
         mDotNormalSize = dotNormalSize;
 
-        for (int i = 0; i < sDotCount; i++) {
-            for (int j = 0; j < sDotCount; j++) {
-                mDotStates[i][j] = new DotState();
-                mDotStates[i][j].mSize = mDotNormalSize;
-            }
+        for (Dot d : mPatternDrawLookup) {
+            d.dotState.mSize = mDotNormalSize;
         }
 
         invalidate();
@@ -763,10 +766,8 @@ public class PatternLockView extends View {
     }
 
     private void clearPatternDrawLookup() {
-        for (int i = 0; i < sDotCount; i++) {
-            for (int j = 0; j < sDotCount; j++) {
-                mPatternDrawLookup[i][j] = false;
-            }
+        for (Dot d : mPatternDrawLookup) {
+            d.setSelected(false);
         }
     }
 
@@ -779,34 +780,8 @@ public class PatternLockView extends View {
      * @param y The y coordinate
      */
     private Dot detectAndAddHit(float x, float y) {
-        final Dot dot = checkForNewHit(x, y);
+        final Dot dot = checkForNewHit1(x, y);
         if (dot != null) {
-            // Check for gaps in existing pattern
-            Dot fillInGapDot = null;
-            final ArrayList<Dot> pattern = mPattern;
-            if (!pattern.isEmpty()) {
-                Dot lastDot = pattern.get(pattern.size() - 1);
-                int dRow = dot.mRow - lastDot.mRow;
-                int dColumn = dot.mColumn - lastDot.mColumn;
-
-                int fillInRow = lastDot.mRow;
-                int fillInColumn = lastDot.mColumn;
-
-                if (Math.abs(dRow) == 2 && Math.abs(dColumn) != 1) {
-                    fillInRow = lastDot.mRow + ((dRow > 0) ? 1 : -1);
-                }
-
-                if (Math.abs(dColumn) == 2 && Math.abs(dRow) != 1) {
-                    fillInColumn = lastDot.mColumn + ((dColumn > 0) ? 1 : -1);
-                }
-
-                fillInGapDot = Dot.of(fillInRow, fillInColumn);
-            }
-
-            if (fillInGapDot != null
-                    && !mPatternDrawLookup[fillInGapDot.mRow][fillInGapDot.mColumn]) {
-                addCellToPattern(fillInGapDot);
-            }
             addCellToPattern(dot);
             if (mEnableHapticFeedback) {
                 performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY,
@@ -819,8 +794,9 @@ public class PatternLockView extends View {
     }
 
     private void addCellToPattern(Dot newDot) {
-        mPatternDrawLookup[newDot.mRow][newDot.mColumn] = true;
+        mPatternDrawLookup[newDot.getId()].setSelected(true);
         mPattern.add(newDot);
+        lastDot = newDot;
         if (!mInStealthMode) {
             startDotSelectedAnimation(newDot);
         }
@@ -828,7 +804,7 @@ public class PatternLockView extends View {
     }
 
     private void startDotSelectedAnimation(Dot dot) {
-        final DotState dotState = mDotStates[dot.mRow][dot.mColumn];
+        final DotState dotState = mPatternDrawLookup[dot.getId()].dotState;
         startSizeAnimation(mDotNormalSize, mDotSelectedSize, mDotAnimationDuration,
                 mLinearOutSlowInInterpolator, dotState, new Runnable() {
 
@@ -839,7 +815,7 @@ public class PatternLockView extends View {
                     }
                 });
         startLineEndAnimation(dotState, mInProgressX, mInProgressY,
-                getCenterXForColumn(dot.mColumn), getCenterYForRow(dot.mRow));
+                dot.getX(), dot.getY());
     }
 
     private void startLineEndAnimation(final DotState state,
@@ -907,62 +883,18 @@ public class PatternLockView extends View {
      * @param y The y coordinate
      * @return
      */
-    private Dot checkForNewHit(float x, float y) {
-        final int rowHit = getRowHit(y);
-        if (rowHit < 0) {
-            return null;
-        }
-        final int columnHit = getColumnHit(x);
-        if (columnHit < 0) {
-            return null;
-        }
-
-        if (mPatternDrawLookup[rowHit][columnHit]) {
-            return null;
-        }
-        return Dot.of(rowHit, columnHit);
-    }
-
-    /**
-     * Helper method to find the row that y coordinate falls into
-     *
-     * @param y The y coordinate
-     * @return The mRow that y falls in, or -1 if it falls in no mRow
-     */
-    private int getRowHit(float y) {
-        final float squareHeight = mViewHeight;
-        float hitSize = squareHeight * mHitFactor;
-
-        float offset = getPaddingTop() + (squareHeight - hitSize) / 2f;
-        for (int i = 0; i < sDotCount; i++) {
-            float hitTop = offset + squareHeight * i;
-            if (y >= hitTop && y <= hitTop + hitSize) {
-                return i;
+    private Dot checkForNewHit1(float x, float y) {
+        for (Dot d : mPatternDrawLookup) {
+            if ((Math.abs(d.getY() - y) < mViewWidth / 3) && (Math.abs(d.getX() - x) < mViewWidth / 3)) {
+                if (lastDot != null && lastDot.getId() == d.getId())
+                    return null;
+                return d;
             }
         }
-        return -1;
+
+        return null;
     }
 
-    /**
-     * Helper method to find the column x falls into
-     *
-     * @param x The x coordinate
-     * @return The mColumn that x falls in, or -1 if it falls in no mColumn
-     */
-    private int getColumnHit(float x) {
-        final float squareWidth = mViewWidth;
-        float hitSize = squareWidth * mHitFactor;
-
-        float offset = getPaddingLeft() + (squareWidth - hitSize) / 2f;
-        for (int i = 0; i < sDotCount; i++) {
-
-            final float hitLeft = offset + squareWidth * i;
-            if (x >= hitLeft && x <= hitLeft + hitSize) {
-                return i;
-            }
-        }
-        return -1;
-    }
 
     private void handleActionMove(MotionEvent event) {
         float radius = mPathWidth;
@@ -990,8 +922,8 @@ public class PatternLockView extends View {
             if (mPatternInProgress && patternSize > 0) {
                 final ArrayList<Dot> pattern = mPattern;
                 final Dot lastDot = pattern.get(patternSize - 1);
-                float lastCellCenterX = getCenterXForColumn(lastDot.mColumn);
-                float lastCellCenterY = getCenterYForRow(lastDot.mRow);
+                float lastCellCenterX = lastDot.getX();
+                float lastCellCenterY = lastDot.getY();
 
                 // Adjust for drawn segment from last cell to (x,y). Radius
                 // accounts for line width.
@@ -1005,8 +937,8 @@ public class PatternLockView extends View {
                 if (hitDot != null) {
                     float width = mViewWidth * 0.5f;
                     float height = mViewHeight * 0.5f;
-                    float hitCellCenterX = getCenterXForColumn(hitDot.mColumn);
-                    float hitCellCenterY = getCenterYForRow(hitDot.mRow);
+                    float hitCellCenterX = hitDot.getX();
+                    float hitCellCenterY = hitDot.getY();
 
                     left = Math.min(hitCellCenterX - width, left);
                     right = Math.max(hitCellCenterX + width, right);
@@ -1059,14 +991,12 @@ public class PatternLockView extends View {
     }
 
     private void cancelLineAnimations() {
-        for (int i = 0; i < sDotCount; i++) {
-            for (int j = 0; j < sDotCount; j++) {
-                DotState state = mDotStates[i][j];
-                if (state.mLineAnimator != null) {
-                    state.mLineAnimator.cancel();
-                    state.mLineEndX = Float.MIN_VALUE;
-                    state.mLineEndY = Float.MIN_VALUE;
-                }
+        for (Dot d : mPatternDrawLookup) {
+            DotState state = d.dotState;
+            if (state.mLineAnimator != null) {
+                state.mLineAnimator.cancel();
+                state.mLineEndX = Float.MIN_VALUE;
+                state.mLineEndY = Float.MIN_VALUE;
             }
         }
     }
@@ -1085,8 +1015,8 @@ public class PatternLockView extends View {
             notifyPatternCleared();
         }
         if (hitDot != null) {
-            float startX = getCenterXForColumn(hitDot.mColumn);
-            float startY = getCenterYForRow(hitDot.mRow);
+            float startX = hitDot.getX();
+            float startY = hitDot.getY();
 
             float widthOffset = mViewWidth / 2f;
             float heightOffset = mViewHeight / 2f;
@@ -1146,26 +1076,40 @@ public class PatternLockView extends View {
      * Represents a cell in the matrix of the pattern view
      */
     public static class Dot implements Parcelable {
+        private int mId;
+        private float x;
+        private float y;
+        private boolean selected;
+        public DotState dotState = new DotState();
 
-        private int mRow;
-        private int mColumn;
-        private static Dot[][] sDots;
-
-        static {
-            sDots = new Dot[sDotCount][sDotCount];
-
-            // Initializing the dots
-            for (int i = 0; i < sDotCount; i++) {
-                for (int j = 0; j < sDotCount; j++) {
-                    sDots[i][j] = new Dot(i, j);
-                }
-            }
+        public float getX() {
+            return x;
         }
 
-        private Dot(int row, int column) {
-            checkRange(row, column);
-            this.mRow = row;
-            this.mColumn = column;
+        public void setX(float x) {
+            this.x = x;
+        }
+
+
+        public float getY() {
+            return y;
+        }
+
+        public void setY(float y) {
+            this.y = y;
+        }
+
+        public Dot(int mId) {
+            this.mId = mId;
+        }
+
+
+        public boolean isSelected() {
+            return selected;
+        }
+
+        public void setSelected(boolean selected) {
+            this.selected = selected;
         }
 
         /**
@@ -1173,61 +1117,29 @@ public class PatternLockView extends View {
          * matrix, starting by zero
          */
         public int getId() {
-            return mRow * sDotCount + mColumn;
-        }
-
-        public int getRow() {
-            return mRow;
-        }
-
-        public int getColumn() {
-            return mColumn;
-        }
-
-        /**
-         * @param row    The mRow of the cell.
-         * @param column The mColumn of the cell.
-         */
-        public static synchronized Dot of(int row, int column) {
-            checkRange(row, column);
-            return sDots[row][column];
-        }
-
-        /**
-         * Gets a cell from its identifier
-         */
-        public static synchronized Dot of(int id) {
-            return of(id / sDotCount, id % sDotCount);
-        }
-
-        private static void checkRange(int row, int column) {
-            if (row < 0 || row > sDotCount - 1) {
-                throw new IllegalArgumentException("mRow must be in range 0-"
-                        + (sDotCount - 1));
-            }
-            if (column < 0 || column > sDotCount - 1) {
-                throw new IllegalArgumentException("mColumn must be in range 0-"
-                        + (sDotCount - 1));
-            }
+            return mId;
         }
 
         @Override
         public String toString() {
-            return "(Row = " + mRow + ", Col = " + mColumn + ")";
+            return "Dot{" +
+                    "mId=" + mId +
+                    ", x=" + x +
+                    ", y=" + y +
+                    ", selected=" + selected +
+                    '}';
         }
 
         @Override
         public boolean equals(Object object) {
             if (object instanceof Dot)
-                return mColumn == ((Dot) object).mColumn
-                        && mRow == ((Dot) object).mRow;
+                return mId == ((Dot) object).mId;
             return super.equals(object);
         }
 
         @Override
         public int hashCode() {
-            int result = mRow;
-            result = 31 * result + mColumn;
+            int result = mId;
             return result;
         }
 
@@ -1238,8 +1150,10 @@ public class PatternLockView extends View {
 
         @Override
         public void writeToParcel(Parcel dest, int flags) {
-            dest.writeInt(mColumn);
-            dest.writeInt(mRow);
+            dest.writeInt(mId);
+            dest.writeFloat(x);
+            dest.writeFloat(y);
+            dest.writeInt(selected ? 1 : 0);
         }
 
         public static final Creator<Dot> CREATOR = new Creator<Dot>() {
@@ -1254,8 +1168,10 @@ public class PatternLockView extends View {
         };
 
         private Dot(Parcel in) {
-            mColumn = in.readInt();
-            mRow = in.readInt();
+            mId = in.readInt();
+            x = in.readFloat();
+            y = in.readFloat();
+            selected = in.readInt() == 1 ? true : false;
         }
     }
 

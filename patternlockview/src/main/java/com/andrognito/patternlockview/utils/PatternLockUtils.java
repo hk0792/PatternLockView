@@ -54,7 +54,7 @@ public class PatternLockUtils {
 
         for (int i = 0; i < patternSize; i++) {
             PatternLockView.Dot dot = pattern.get(i);
-            stringBuilder.append((dot.getRow() * patternLockView.getDotCount() + dot.getColumn()));
+            stringBuilder.append(dot);
         }
         return stringBuilder.toString();
     }
@@ -71,8 +71,7 @@ public class PatternLockUtils {
 
         for (int i = 0; i < string.length(); i++) {
             int number = Character.getNumericValue(string.charAt(i));
-            result.add(PatternLockView.Dot.of(number / patternLockView.getDotCount(),
-                    number % patternLockView.getDotCount()));
+            result.add(new PatternLockView.Dot(number));
         }
         return result;
     }
@@ -264,7 +263,7 @@ public class PatternLockUtils {
 
         ArrayList<PatternLockView.Dot> result = new ArrayList<>();
         for (int id : usedIds) {
-            result.add(PatternLockView.Dot.of(id));
+            result.add(new PatternLockView.Dot(id));
         }
 
         return result;

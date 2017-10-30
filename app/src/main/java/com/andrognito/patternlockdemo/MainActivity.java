@@ -63,9 +63,6 @@ public class MainActivity extends AppCompatActivity {
 //        mPatternLockView.setAspectRatioEnabled(true);
 //        mPatternLockView.setAspectRatio(PatternLockView.AspectRatio.ASPECT_RATIO_HEIGHT_BIAS);
         mPatternLockView.setViewMode(PatternLockView.PatternViewMode.WRONG);
-        ArrayList<PatternLockView.Dot> list=new ArrayList<>();
-        list.add(PatternLockView.Dot.of(5));
-        list.add(PatternLockView.Dot.of(6));
 //        mPatternLockView.setPattern(PatternLockView.PatternViewMode.AUTO_DRAW, list);
 //        mPatternLockView.setDotAnimationDuration(150);
 //        mPatternLockView.setPathEndAnimationDuration(100);
