@@ -6,6 +6,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
@@ -47,6 +48,17 @@ import static com.andrognito.patternlockview.PatternLockView.PatternViewMode.WRO
  * can be used to lock any Activity or Fragment from the user
  */
 public class PatternLockView extends View {
+
+    public DotAdapter getDotAdapter() {
+        return dotAdapter;
+    }
+
+    public void setDotAdapter(DotAdapter dotAdapter) {
+        this.dotAdapter = dotAdapter;
+        addPatternLockListener(dotAdapter);
+        requestLayout();
+        invalidate();
+    }
 
     /**
      * Represents the aspect ratio for the View
@@ -130,6 +142,9 @@ public class PatternLockView extends View {
     private List<PatternLockViewListener> mPatternListeners;
     // The pattern represented as a list of connected {@link Dot}
     private ArrayList<Dot> mPattern;
+    private float centerX, centerY;
+    private float posRaduis;
+    private float dotRaduis;
 
     /**
      * Lookup table for the dots of the pattern we are currently drawing.
@@ -149,15 +164,46 @@ public class PatternLockView extends View {
     private boolean mEnableHapticFeedback = true;
     private boolean mPatternInProgress = false;
 
-    private float mViewWidth;
-    private float mViewHeight;
-
     private final Path mCurrentPath = new Path();
     private final Rect mInvalidate = new Rect();
     private final Rect mTempInvalidateRect = new Rect();
 
     private Interpolator mFastOutSlowInInterpolator;
     private Interpolator mLinearOutSlowInInterpolator;
+    private DotAdapter dotAdapter;
+
+
+    private void initDots() {
+        if (dotAdapter != null)
+            sDotCount = dotAdapter.getCount();
+        if (mPattern == null)
+            mPattern = new ArrayList<>(sDotCount);
+        Dot dot;
+        mPatternDrawLookup = new Dot[sDotCount];
+        for (int i = 0, size = sDotCount; i < size; i++) {
+            dot = new Dot(i);
+            mPatternDrawLookup[i] = dot;
+        }
+        circlePosition(sDotCount);
+        if (mPatternDrawLookup == null) {
+        } else {
+        }
+
+    }
+
+    private void circlePosition(int mPatternSize) {
+        float x, y;
+        Dot dot;
+        mDotNormalSize = mDotNormalSize > dotRaduis ? (int) dotRaduis : mDotNormalSize;
+        for (int i = 0, size = mPatternSize; i < size; i++) {
+            x = centerX + (float) (posRaduis * Math.cos(2 * Math.PI / mPatternSize * i - Math.PI / 2));
+            y = centerY + (float) (posRaduis * Math.sin(2 * Math.PI / mPatternSize * i - Math.PI / 2));
+            dot = mPatternDrawLookup[i];
+            dot.setX(x);
+            dot.setY(y);
+            dot.dotState.mSize = mDotNormalSize;
+        }
+    }
 
     public PatternLockView(Context context) {
         this(context, null);
@@ -195,8 +241,6 @@ public class PatternLockView extends View {
             typedArray.recycle();
         }
 
-        // The pattern will always be symmetrical
-        initDots(sDotCount);
 
         mPatternListeners = new ArrayList<>();
 
@@ -309,6 +353,9 @@ public class PatternLockView extends View {
             float translationY = dotState.mTranslateY;
             drawCircle(canvas, (int) d.getX(), (int) d.getY() + translationY,
                     size, d.isSelected(), dotState.mAlpha);
+            mDotPaint.setColor(Color.parseColor("#0000ff"));
+            if (dotAdapter != null)
+                dotAdapter.onDraw(canvas, d);
         }
 
         // Draw the path of the pattern (unless we are in stealth mode)
@@ -366,11 +413,14 @@ public class PatternLockView extends View {
     @Override
     protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
         int adjustedWidth = width - getPaddingLeft() - getPaddingRight();
-        mViewWidth = adjustedWidth / (float) sDotCount;
+        centerX = width / 2;
 
         int adjustedHeight = height - getPaddingTop() - getPaddingBottom();
-        mViewHeight = adjustedHeight / (float) sDotCount;
+        centerY = width / 2;
 
+        posRaduis = width / 2 / (float) (1 + Math.sin(Math.PI / sDotCount));
+
+        dotRaduis = (float) (posRaduis * Math.sin(Math.PI / sDotCount));
         initDots();
     }
 
@@ -564,40 +614,10 @@ public class PatternLockView extends View {
     }
 
     public void setDotCount(int dotCount) {
-        initDots(dotCount);
+        initDots();
 
         requestLayout();
         invalidate();
-    }
-
-    private void initDots() {
-        initDots(sDotCount);
-    }
-
-    private void initDots(int dotCount) {
-        sDotCount = dotCount;
-        mPatternSize = sDotCount * sDotCount;
-        if (mPattern == null)
-            mPattern = new ArrayList<>(mPatternSize);
-        Dot dot;
-        if (mPatternDrawLookup == null) {
-            mPatternDrawLookup = new Dot[mPatternSize];
-            for (int i = 0, size = mPatternSize; i < size; i++) {
-                dot = new Dot(i);
-                dot.setX(getCenterXForColumn(i % sDotCount));
-                dot.setY(getCenterYForRow(i / sDotCount));
-                dot.dotState.mSize = mDotNormalSize;
-                mPatternDrawLookup[i] = dot;
-            }
-        } else {
-            for (int i = 0, size = mPatternSize; i < size; i++) {
-                dot = mPatternDrawLookup[i];
-                dot.setX(getCenterXForColumn(i % sDotCount));
-                dot.setY(getCenterYForRow(i / sDotCount));
-                dot.dotState.mSize = mDotNormalSize;
-            }
-        }
-
     }
 
     public void setAspectRatioEnabled(boolean aspectRatioEnabled) {
@@ -730,6 +750,7 @@ public class PatternLockView extends View {
         mPattern.clear();
         clearPatternDrawLookup();
         mPatternViewMode = CORRECT;
+        lastDot = null;
         invalidate();
     }
 
@@ -780,7 +801,7 @@ public class PatternLockView extends View {
      * @param y The y coordinate
      */
     private Dot detectAndAddHit(float x, float y) {
-        final Dot dot = checkForNewHit1(x, y);
+        final Dot dot = checkForNewHit(x, y);
         if (dot != null) {
             addCellToPattern(dot);
             if (mEnableHapticFeedback) {
@@ -883,10 +904,12 @@ public class PatternLockView extends View {
      * @param y The y coordinate
      * @return
      */
-    private Dot checkForNewHit1(float x, float y) {
+    private Dot checkForNewHit(float x, float y) {
         for (Dot d : mPatternDrawLookup) {
-            if ((Math.abs(d.getY() - y) < mViewWidth / 3) && (Math.abs(d.getX() - x) < mViewWidth / 3)) {
+            if ((Math.abs(d.getY() - y) < dotRaduis) && (Math.abs(d.getX() - x) < dotRaduis)) {
                 if (lastDot != null && lastDot.getId() == d.getId())
+                    return null;
+                if ((d.getY() - y) * (d.getY() - y) + (d.getX() - x) * (d.getX() - x) > dotRaduis * dotRaduis)
                     return null;
                 return d;
             }
@@ -935,8 +958,8 @@ public class PatternLockView extends View {
                 // Invalidate between the pattern's new cell and the pattern's
                 // previous cell
                 if (hitDot != null) {
-                    float width = mViewWidth * 0.5f;
-                    float height = mViewHeight * 0.5f;
+                    float width = dotRaduis;
+                    float height = dotRaduis;
                     float hitCellCenterX = hitDot.getX();
                     float hitCellCenterY = hitDot.getY();
 
@@ -1018,8 +1041,8 @@ public class PatternLockView extends View {
             float startX = hitDot.getX();
             float startY = hitDot.getY();
 
-            float widthOffset = mViewWidth / 2f;
-            float heightOffset = mViewHeight / 2f;
+            float widthOffset = dotRaduis;
+            float heightOffset = dotRaduis;
 
             invalidate((int) (startX - widthOffset),
                     (int) (startY - heightOffset),
@@ -1035,20 +1058,13 @@ public class PatternLockView extends View {
         }
     }
 
-    private float getCenterXForColumn(int column) {
-        return getPaddingLeft() + column * mViewWidth + mViewWidth / 2f;
-    }
-
-    private float getCenterYForRow(int row) {
-        return getPaddingTop() + row * mViewHeight + mViewHeight / 2f;
-    }
 
     private float calculateLastSegmentAlpha(float x, float y, float lastX,
                                             float lastY) {
         float diffX = x - lastX;
         float diffY = y - lastY;
         float dist = (float) Math.sqrt(diffX * diffX + diffY * diffY);
-        float fraction = dist / mViewWidth;
+        float fraction = dist / dotRaduis;
         return Math.min(1f, Math.max(0f, (fraction - 0.3f) * 4f));
     }
 
@@ -1066,10 +1082,10 @@ public class PatternLockView extends View {
     }
 
     private void drawCircle(Canvas canvas, float centerX, float centerY,
-                            float size, boolean partOfPattern, float alpha) {
+                            float raduis, boolean partOfPattern, float alpha) {
         mDotPaint.setColor(getCurrentColor(partOfPattern));
         mDotPaint.setAlpha((int) (alpha * 255));
-        canvas.drawCircle(centerX, centerY, size / 2, mDotPaint);
+        canvas.drawCircle(centerX, centerY, raduis, mDotPaint);
     }
 
     /**
@@ -1126,7 +1142,6 @@ public class PatternLockView extends View {
                     "mId=" + mId +
                     ", x=" + x +
                     ", y=" + y +
-                    ", selected=" + selected +
                     '}';
         }
 

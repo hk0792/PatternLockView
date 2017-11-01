@@ -1,11 +1,15 @@
 package com.andrognito.patternlockdemo;
 
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Window;
 import android.view.WindowManager;
 
+import com.andrognito.patternlockview.DotAdapter;
 import com.andrognito.patternlockview.PatternLockView;
 import com.andrognito.patternlockview.listener.PatternLockViewListener;
 import com.andrognito.patternlockview.utils.PatternLockUtils;
@@ -73,6 +77,37 @@ public class MainActivity extends AppCompatActivity {
 //        mPatternLockView.addPatternLockListener(mPatternLockViewListener);
         ;
 
+
+        mPatternLockView.setDotAdapter(new DotAdapter<String>(5) {
+            @Override
+            public void onDraw(Canvas canvas, PatternLockView.Dot dot) {
+                Paint mDotPaint = new Paint();
+                mDotPaint.setColor(Color.parseColor("#0000ff"));
+
+//                canvas.drawText("d" + dot.getId(), (int) dot.getX(), (int) dot.getY(), mDotPaint);
+            }
+
+            @Override
+            public void createDotMap() {
+                add("445");
+                add("edw");
+                add("bbc");
+                add("ffd");
+                add("42d");
+            }
+
+            @Override
+            public void onProgressIng(List<String> progressPattern) {
+
+            }
+
+            @Override
+            public void onCompleted(List<String> progressPattern) {
+                Log.e("allen", "Complete: " + progressPattern.toString());
+            }
+
+
+        });
 
         RxPatternLockView.patternComplete(mPatternLockView)
                 .subscribe(new Consumer<PatternLockCompleteEvent>() {
